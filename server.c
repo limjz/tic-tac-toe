@@ -21,8 +21,6 @@ struct Game
     int currentPlayer;
     bool game_active;   
     pthread_mutex_t board_mutex; //mutex for synchronizing access to the game board
-    
-    int player_sockets[2]; //sockets for two players
     int player_count; //number of connected players
 };
 
@@ -51,13 +49,11 @@ void* logger_thread (void* arg)
 
 
 
-void* handle_client (void* arg)
+void handle_client (int client_socket, int player_id, int player_count)
 {
     // Handle client logic here 
-    int my_id = *(int*)arg;
-    printf ("Player %d connected. Current Player: %d (socket=%d)\n", my_id + 1, gameData->currentPlayer, gameData->player_sockets[my_id]);
+    printf ("Player %d connected. Current Player: %d\n", player_id + 1, player_count);
     
-    return NULL;
 }
 
 
@@ -65,9 +61,6 @@ int main ()
 {
     shm_unlink (SHM_NAME); //remove existing shared memory segment if any
 
-    // player joined the game
-    int playerNumber = 0;
-    
 
     //create and open shared memory
     int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666); 
@@ -87,7 +80,7 @@ int main ()
     }
 
     //data initialization
-    gameData->player_count = 0;
+    int playerNumber = gameData->player_count = 0;
     gameData->game_active = true;
     gameData->currentPlayer = 1;
 
@@ -106,6 +99,14 @@ int main ()
     //create Server Socket (listen)
     int server_fd;
     server_fd = socket (AF_INET, SOCK_STREAM, 0);
+
+    //avoid address already in use error
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        perror ("setsockopt failed. Exiting.\n");
+        exit (1);
+    }
+
     //define the server and client address 
     struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
@@ -120,7 +121,7 @@ int main ()
 
     listen (server_fd, 5);
 
-    pthread_t client_thread[2];
+ 
     while (playerNumber < 2)
     {
         printf ("Waiting for player %d to connect...\n", playerNumber + 1);
@@ -136,12 +137,27 @@ int main ()
             exit (1);
         }
         
-        gameData->player_sockets[playerNumber] = new_client_fd;
-        gameData->player_count++;
+        //fork() a new process to handle each client
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            perror ("Fork failed. Exiting.\n");
+            exit (1);
+        }
+        else if (pid == 0) //child process
+        {
+            close (server_fd); //close server socket in child process
+            handle_client (new_client_fd, PLAYER_IDS[playerNumber], playerNumber + 1);
 
-        pthread_create(&client_thread[playerNumber], NULL, handle_client, (void*)&PLAYER_IDS[playerNumber]);
+            exit (0);
+        }
+        else //parent process
+        {
+            close (new_client_fd); //close client socket in parent process
+        }
+        
 
-        printf ("Client %d connected successfully.\n", gameData->player_count);
+        printf ("Client %d connected successfully.\n", playerNumber + 1);
         
         playerNumber++;
         
@@ -157,8 +173,6 @@ int main ()
     pthread_join(scheduler, NULL);
     pthread_join(logger, NULL);
 
-    pthread_join(client_thread[0], NULL);
-    pthread_join(client_thread[1], NULL);
 
     //cleanup
     close (server_fd);
