@@ -2,8 +2,8 @@
 #include <stdlib.h> 
 #include <string.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -54,7 +54,7 @@ int main()
     recv (server_socket, server_response, sizeof(server_response), 0);
 
     //print server response 
-    printf ("Server Response: %s\n", server_response);
+    //printf ("Server Response: %s\n", server_response);
 
     //close socket
     close (server_socket);
