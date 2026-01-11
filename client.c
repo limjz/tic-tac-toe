@@ -97,16 +97,6 @@ int main()
         }
     }
 
-
-
-
-
-    //receive data from server
-    //recv (server_socket, server_response, sizeof(server_response), 0);
-
-    //print server response 
-    //printf ("Server Response: %s\n", server_response);
-
     //close socket
     close (server_socket);
 

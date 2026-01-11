@@ -104,7 +104,6 @@ void signal_handler (int signo)
             gameData->game_active = false; 
             printf ("Player disconnected. Game quit \n");
 
-            //if server shutdown, all process including the child end as well
             kill(0, SIGTERM);
             exit(0);
         }
@@ -247,6 +246,7 @@ int main ()
     munmap(gameData, SHM_SIZE);
     shm_unlink(SHM_NAME);
     
+     //if server shutdown, all process including the child end as well (final check)
     kill(0, SIGTERM);
 
     return 0;
