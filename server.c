@@ -117,9 +117,6 @@ int main ()
 {
     shm_unlink (SHM_NAME); //remove existing shared memory segment if any
 
-    // player joined the game
-    int playerNumber = 0;
-    
 
     //create and open shared memory
     int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666); 
@@ -139,7 +136,7 @@ int main ()
     }
 
     //data initialization
-    gameData->player_count = 0;
+    int playerNumber = gameData->player_count = 0;
     gameData->game_active = true;
     gameData->currentPlayer = 1;
 
