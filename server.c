@@ -18,6 +18,7 @@
 #define SERVER_PORT 8080
 #define MAX_LOG_LENGTH 256
 #define MAX_QUEUE_SIZE 50
+#define MIN_PLAYERS 3
 
 /* Shared memory constants */
 struct Game
@@ -28,7 +29,7 @@ struct Game
     int player_count; //number of connected players
 
     // -- Scheduler system ---
-    bool player_active[3]; //track active players
+    bool player_active[5]; //track active players
     bool turn_complete; //true if done, thn scheduler reset to false
 
     // --- Logging system ---
@@ -54,11 +55,16 @@ void* scheduler_thread(void* arg) {
     printf("[Scheduler] Thread started. Waiting for players...\n");
 
     // Wait until at least 3 players connect before managing turns
-    while (gameData->player_count < 3 && gameData->game_active) {
+    while (gameData->player_count < MIN_PLAYERS && gameData->game_active) {
         usleep(1000000);
     }
     
+    if (!gameData->game_active) {
+        pthread_mutex_lock(&gameData->board_mutex);
+    }
+
     log_message("Scheduler: Minimum players connected. Game Starting!");
+    printf("Scheduler: Minimum players connected. Game Starting!\n");
 
     while (gameData->game_active) {
         pthread_mutex_lock(&gameData->board_mutex);
@@ -68,25 +74,24 @@ void* scheduler_thread(void* arg) {
             
             // Calculate next player (Round Robin)
             int next_player = gameData->currentPlayer;
-            int attempts = 0;
+            int start_player = next_player;
 
             do {
                 next_player = (next_player % gameData->player_count) + 1; // 1->2->3->1...
-                attempts++;
                 
                 // Logic to handle inactive players (optional but recommended by rubric)
                 // Assuming you map Player 1 -> index 0 in player_active
-                if (gameData->player_active[next_player - 1]) {
+                if (next_player == start_player && !gameData->player_active[next_player - 1]) {
                      break;
                 }
-            } while (attempts <= gameData->player_count);
+            } while (!gameData->player_active[next_player - 1]);
 
             // Update state
             gameData->currentPlayer = next_player;
             gameData->turn_complete = false; // Reset flag for the new player
             
             char logBuf[100];
-            sprintf(logBuf, "Scheduler: Turn passed to Player %d", next_player);
+            sprintf(logBuf, "Scheduler: Turn passed to Player %d", sizeof(logBuf)),
             log_message(logBuf);
         }
 
@@ -104,6 +109,8 @@ void* logger_thread(void* arg) {
         return NULL;
     }
 
+    fprintf(fp, "Server Started. Logger Initialized.\n");
+
     while (gameData->game_active) {
         pthread_mutex_lock(&gameData->log_mutex);
         
@@ -111,11 +118,12 @@ void* logger_thread(void* arg) {
         while (gameData->log_head != gameData->log_tail) {
             // Write to file
             fprintf(fp, "%s\n", gameData->log_queue[gameData->log_head]);
-            fflush(fp); // Ensure it's written immediately [cite: 50]
+
             
             // Advance head
             gameData->log_head = (gameData->log_head + 1) % MAX_QUEUE_SIZE;
         }
+        fflush(fp); // Ensure it's written immediately [cite: 50]
         
         pthread_mutex_unlock(&gameData->log_mutex);
         usleep(100000); // Sleep 0.1s to avoid high CPU usage
@@ -126,6 +134,9 @@ void* logger_thread(void* arg) {
 }
 
 void log_message(char *msg) {
+
+    if (gameData == NULL) return;
+
     pthread_mutex_lock(&gameData->log_mutex);
     
     // Add message to queue at 'tail'
@@ -144,6 +155,10 @@ void handle_client (int client_socket, int player_id, int player_count)
     // Handle client logic here 
     printf ("Player %d connected. Current Player: %d\n", player_id + 1, player_count);
     
+    char logBuf[100];
+    snprintf(logBuf, sizeof(logBuf), "Player %d connected.", player_id + 1);
+    log_message(logBuf);
+
     char msg_from_client[BUFFER_SIZE]; // message send from client
     char *msg = "Welcome to the server !!"; 
     send (client_socket, msg, strlen(msg), 0);
@@ -157,6 +172,12 @@ void handle_client (int client_socket, int player_id, int player_count)
         {
             printf("Player %d disconnected. \n", player_id + 1);
 
+            pthread_mutex_lock(&gameData->board_mutex);
+            gameData->player_active[player_id] = false; // Mark player as inactive
+            pthread_mutex_unlock(&gameData->board_mutex);
+
+            snprintf(logBuf, sizeof(logBuf), "Player %d disconnected.", player_id - 1);
+            log_message(logBuf);
             break;
         }
 
@@ -168,23 +189,10 @@ void handle_client (int client_socket, int player_id, int player_count)
 
 }
 
-void signal_handler (int signo)
+void signal_handler(int signo)
 {
-    //killing the child process, prevent zombie
-    while( waitpid (-1, NULL, WNOHANG) > 0);
-    {
-        //if the child is dead, the parents still ongoing, close the game-> game_active = false
-        if (gameData != NULL && gameData->game_active) 
-        {
-            gameData->game_active = false; 
-            printf ("Player disconnected. Game quit \n");
-
-            kill(0, SIGTERM);
-            exit(0);
-        }
-        
-    }
-
+    // Reap zombie processes [cite: 34]
+    while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
 int main() {
@@ -265,7 +273,8 @@ int main() {
     printf("Server started. Waiting for players...\n");
 
     // 7. Accept Loop
-    while (gameData->player_count < 3) { // Or whatever limit you want
+    int player_count = 0;
+    while (player_count < MIN_PLAYERS || gameData->game_active) { // Or whatever limit you want
         struct sockaddr_in client_address;
         socklen_t client_len = sizeof(client_address);
         int new_client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_len);
@@ -279,7 +288,12 @@ int main() {
         
         // NEW: Mark player as active before forking
         // Note: Check bounds in real code to avoid overflow
-        gameData->player_active[gameData->player_count] = true; 
+pthread_mutex_lock(&gameData->board_mutex);
+        if (player_count < 3) {
+            gameData->player_active[player_count] = true;
+            gameData->player_count++;
+        }
+        pthread_mutex_unlock(&gameData->board_mutex);
 
         pid_t pid = fork();
         if (pid < 0) {
@@ -288,15 +302,15 @@ int main() {
         else if (pid == 0) {
             // === CHILD PROCESS ===
             close(server_fd); 
-            // Pass the correct ID and count
-            handle_client(new_client_fd, PLAYER_IDS[gameData->player_count], gameData->player_count + 1);
+            // Child handles the client
+            handle_client(new_client_fd, player_count, player_count + 1);
             exit(0);
         } 
         else {
             // === PARENT PROCESS ===
             close(new_client_fd);
-            printf("Client %d connected (PID: %d)\n", gameData->player_count + 1, pid);
-            gameData->player_count++;
+            printf("Client connected (PID: %d)\n", pid);
+            player_count++;
         }
     }
 
