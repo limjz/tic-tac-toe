@@ -16,16 +16,30 @@
 
 #define BUFFER_SIZE 1024
 #define SERVER_PORT 8080
-
+#define MAX_LOG_LENGTH 256
+#define MAX_QUEUE_SIZE 50
+#define MIN_PLAYERS 3
 
 /* Shared memory constants */
 struct Game
 {
     char boardGame[4][4]; //board game 4x4
-    int currentPlayer;
+    int currentPlayer;  //track current player's turn
     bool game_active;   
-    pthread_mutex_t board_mutex; //mutex for synchronizing access to the game board
     int player_count; //number of connected players
+
+    // -- Scheduler system ---
+    bool player_active[5]; //track active players
+    bool turn_complete; //true if done, thn scheduler reset to false
+
+    // --- Logging system ---
+    char log_queue[MAX_QUEUE_SIZE][MAX_LOG_LENGTH];
+    int log_head;
+    int log_tail;
+
+    // --- Mutexes for synchronization ---
+    pthread_mutex_t board_mutex; //mutex for synchronizing access to the game board
+    pthread_mutex_t log_mutex; //mutex for synchronizing access to the log file
 };
 
 struct Game *gameData;
@@ -34,41 +48,117 @@ const size_t SHM_SIZE = sizeof(struct Game);
 char server_message[BUFFER_SIZE];
 int PLAYER_IDS[3] = {0, 1, 2};
 
-
+void log_message(char *msg);
 
 /* Thread functions */  
-void* scheduler_thread (void* arg)
-{
-    /*
-    scheduler logic here 
-    player turns, check win conditions, update game state
-    */
+void* scheduler_thread(void* arg) {
+    printf("[Scheduler] Thread started. Waiting for players...\n");
 
-    printf("Scheduler start working: Monitoring game state... \n");
-
-    while (gameData ->game_active)  
-    {
-        usleep (10000000); // keep looping to keep the server side alive
+    // Wait until at least 3 players connect before managing turns
+    while (gameData->player_count < MIN_PLAYERS && gameData->game_active) {
+        usleep(1000000);
+    }
+    
+    if (!gameData->game_active) {
+        pthread_mutex_lock(&gameData->board_mutex);
     }
 
-    printf ("Scheduler: Game finished !! Exiting Scheduler_Thread. \n");
+    log_message("Scheduler: Minimum players connected. Game Starting!");
+    printf("Scheduler: Minimum players connected. Game Starting!\n");
 
+    while (gameData->game_active) {
+        pthread_mutex_lock(&gameData->board_mutex);
+
+        // 1. Check if the current player finished their turn
+        if (gameData->turn_complete) {
+            
+            // Calculate next player (Round Robin)
+            int next_player = gameData->currentPlayer;
+            int start_player = next_player;
+
+            do {
+                next_player = (next_player % gameData->player_count) + 1; // 1->2->3->1...
+                
+                // Logic to handle inactive players (optional but recommended by rubric)
+                // Assuming you map Player 1 -> index 0 in player_active
+                if (next_player == start_player && !gameData->player_active[next_player - 1]) {
+                     break;
+                }
+            } while (!gameData->player_active[next_player - 1]);
+
+            // Update state
+            gameData->currentPlayer = next_player;
+            gameData->turn_complete = false; // Reset flag for the new player
+            
+            char logBuf[100];
+            sprintf(logBuf, "Scheduler: Turn passed to Player %d", sizeof(logBuf)),
+            log_message(logBuf);
+        }
+
+        pthread_mutex_unlock(&gameData->board_mutex);
+        usleep(100000); // Check 10 times a second
+    }
     return NULL;
 }
 
-void* logger_thread (void* arg)
-{ 
-    // record log game events, player actions, errors into a file game.log
+void* logger_thread(void* arg) {
+    printf("[Logger] Thread started.\n");
+    FILE *fp = fopen("game.log", "w");
+    if (!fp) {
+        perror("Failed to open game.log");
+        return NULL;
+    }
+
+    fprintf(fp, "Server Started. Logger Initialized.\n");
+
+    while (gameData->game_active) {
+        pthread_mutex_lock(&gameData->log_mutex);
+        
+        // Check if there is data in the circular buffer
+        while (gameData->log_head != gameData->log_tail) {
+            // Write to file
+            fprintf(fp, "%s\n", gameData->log_queue[gameData->log_head]);
+
+            
+            // Advance head
+            gameData->log_head = (gameData->log_head + 1) % MAX_QUEUE_SIZE;
+        }
+        fflush(fp); // Ensure it's written immediately [cite: 50]
+        
+        pthread_mutex_unlock(&gameData->log_mutex);
+        usleep(100000); // Sleep 0.1s to avoid high CPU usage
+    }
+    
+    fclose(fp);
     return NULL;
 }
 
+void log_message(char *msg) {
 
+    if (gameData == NULL) return;
+
+    pthread_mutex_lock(&gameData->log_mutex);
+    
+    // Add message to queue at 'tail'
+    int next_tail = (gameData->log_tail + 1) % MAX_QUEUE_SIZE;
+    if (next_tail != gameData->log_head) { // Check if full
+        strncpy(gameData->log_queue[gameData->log_tail], msg, MAX_LOG_LENGTH - 1);
+        gameData->log_queue[gameData->log_tail][MAX_LOG_LENGTH - 1] = '\0'; // Safety null
+        gameData->log_tail = next_tail;
+    }
+    
+    pthread_mutex_unlock(&gameData->log_mutex);
+}
 
 void handle_client (int client_socket, int player_id, int player_count)
 {
     // Handle client logic here 
     printf ("Player %d connected. Current Player: %d\n", player_id + 1, player_count);
     
+    char logBuf[100];
+    snprintf(logBuf, sizeof(logBuf), "Player %d connected.", player_id + 1);
+    log_message(logBuf);
+
     char msg_from_client[BUFFER_SIZE]; // message send from client
     char *msg = "Welcome to the server !!"; 
     send (client_socket, msg, strlen(msg), 0);
@@ -82,6 +172,12 @@ void handle_client (int client_socket, int player_id, int player_count)
         {
             printf("Player %d disconnected. \n", player_id + 1);
 
+            pthread_mutex_lock(&gameData->board_mutex);
+            gameData->player_active[player_id] = false; // Mark player as inactive
+            pthread_mutex_unlock(&gameData->board_mutex);
+
+            snprintf(logBuf, sizeof(logBuf), "Player %d disconnected.", player_id - 1);
+            log_message(logBuf);
             break;
         }
 
@@ -93,157 +189,138 @@ void handle_client (int client_socket, int player_id, int player_count)
 
 }
 
-void signal_handler (int signo)
+void signal_handler(int signo)
 {
-    //killing the child process, prevent zombie
-    while( waitpid (-1, NULL, WNOHANG) > 0);
-    {
-        //if the child is dead, the parents still ongoing, close the game-> game_active = false
-        if (gameData != NULL && gameData->game_active) 
-        {
-            gameData->game_active = false; 
-            printf ("Player disconnected. Game quit \n");
-
-            kill(0, SIGTERM);
-            exit(0);
-        }
-        
-    }
-
+    // Reap zombie processes [cite: 34]
+    while(waitpid(-1, NULL, WNOHANG) > 0);
 }
 
+int main() {
+    // 1. Clean up old shared memory
+    shm_unlink(SHM_NAME); 
 
-int main ()
-{
-    shm_unlink (SHM_NAME); //remove existing shared memory segment if any
-
-
-    //create and open shared memory
+    // 2. Create and open shared memory
     int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666); 
     if (shm_fd == -1) {
         perror("shm_open failed");
-        pthread_exit(NULL);
+        exit(1);
     }
     
-    //size of shared memory
-    ftruncate (shm_fd, SHM_SIZE);
+    // 3. Set size of shared memory
+    ftruncate(shm_fd, SHM_SIZE);
 
-    //map shared memory // init gameData
+    // 4. Map shared memory
     gameData = (struct Game*)mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0); 
     if (gameData == MAP_FAILED) {
         perror("mmap failed");
         exit(1);
     }
 
-    //data initialization
-    int playerNumber = gameData->player_count = 0;
+    // ==========================================
+    // DATA INITIALIZATION (CRITICAL UPDATES)
+    // ==========================================
+    gameData->player_count = 0;
     gameData->game_active = true;
-    gameData->currentPlayer = 1;
+    gameData->currentPlayer = 1; // Start with Player 1 (Index 0 in active array usually)
+    gameData->turn_complete = false; // NEW: No moves made yet
 
-    //Mutex initialization -> for fork() and restricted one player only can access the game board at once
+    // NEW: Initialize Logger Pointers
+    gameData->log_head = 0;
+    gameData->log_tail = 0;
+
+    // NEW: Initialize Player Active Array
+    for(int i = 0; i < 3; i++) {
+        gameData->player_active[i] = false;
+    }
+
+    // ==========================================
+    // MUTEX INITIALIZATION
+    // ==========================================
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
+    // CRITICAL: This allows the mutex to work across fork() processes
     pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+
     pthread_mutex_init(&gameData->board_mutex, &attr);
+    pthread_mutex_init(&gameData->log_mutex, &attr); // NEW: Init Log Mutex
 
-
+    // 5. Create Internal Threads
     pthread_t scheduler, logger;
     pthread_create(&scheduler, NULL, scheduler_thread, NULL);
     pthread_create(&logger, NULL, logger_thread, NULL);
     
-
-    //create Server Socket (listen)
-    int server_fd;
-    server_fd = socket (AF_INET, SOCK_STREAM, 0);
-
-    //define the server address
+    // 6. Socket Setup
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
-    server_address.sin_port = htons (SERVER_PORT);
+    server_address.sin_port = htons(SERVER_PORT);
     server_address.sin_addr.s_addr = INADDR_ANY;
 
-
-    //avoid address already in use error
     int opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        perror ("setsockopt failed. Exiting.\n");
-        exit (1);
+        perror("setsockopt failed");
+        exit(1);
     }
 
-    //bind the socket to the specified IP and port
-    if(bind (server_fd, (struct sockaddr *) &server_address, sizeof(server_address)) == -1) {
-        perror ("Binding failed. Exiting.\n");
-        exit (1);
+    if(bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
+        perror("Binding failed");
+        exit(1);
     }
 
-    listen (server_fd, 5); //maximum server can handle 5 client
+    listen(server_fd, 5);
+    signal(SIGCHLD, signal_handler); 
 
-    
-    signal(SIGCHLD, signal_handler); //check if the player still playing onot, if not end the server also
+    printf("Server started. Waiting for players...\n");
 
-    while (playerNumber < 3)
-    {
-        //accept client connections (0 = success, -1 = failure)
-        //define the client address
+    // 7. Accept Loop
+    int player_count = 0;
+    while (player_count < MIN_PLAYERS || gameData->game_active) { // Or whatever limit you want
         struct sockaddr_in client_address;
         socklen_t client_len = sizeof(client_address);
-        int new_client_fd = accept (server_fd, (struct sockaddr *) &client_address, &client_len);
+        int new_client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_len);
         
-        if (new_client_fd == -1)
-        {
-            if (gameData->game_active == false)
-            {
-                printf("Game stopped, player disconnected, server shutdown"); 
-                kill (0, SIGTERM);
-                exit(0);
-            }
-
-
-            perror ("Failed to accept client connection. Exiting.\n");
-            exit (1);
+        if (new_client_fd == -1) {
+             // Handle shutdown gracefully if needed
+            if (!gameData->game_active) break;
+            perror("Accept failed");
+            continue;
         }
         
-        //fork() a new process to handle each client
+        // NEW: Mark player as active before forking
+        // Note: Check bounds in real code to avoid overflow
+pthread_mutex_lock(&gameData->board_mutex);
+        if (player_count < 3) {
+            gameData->player_active[player_count] = true;
+            gameData->player_count++;
+        }
+        pthread_mutex_unlock(&gameData->board_mutex);
+
         pid_t pid = fork();
-        if (pid < 0)
-        {
-            perror ("Fork failed. Exiting.\n");
-            exit (1);
+        if (pid < 0) {
+            perror("Fork failed");
+        } 
+        else if (pid == 0) {
+            // === CHILD PROCESS ===
+            close(server_fd); 
+            // Child handles the client
+            handle_client(new_client_fd, player_count, player_count + 1);
+            exit(0);
+        } 
+        else {
+            // === PARENT PROCESS ===
+            close(new_client_fd);
+            printf("Client connected (PID: %d)\n", pid);
+            player_count++;
         }
-
-        else if (pid == 0) 
-        {
-            // ============= CHILD PROCESS ===========================
-
-            close (server_fd); //close server socket in child process // child only need use client server
-            handle_client (new_client_fd, PLAYER_IDS[playerNumber], playerNumber + 1);
-
-            exit (0);
-        }
-        else 
-        {
-            // ============= PARENT PROCESS =========================
-
-            close (new_client_fd); //close client socket in parent process // parents are the server no need kacau client
-        }
-        
-        printf ("Client %d connected successfully.\n", playerNumber + 1);
-        playerNumber++;
-        
     }
 
-    
-    //wait for client threads to finish
+    // 8. Cleanup & Wait
     pthread_join(scheduler, NULL);
     pthread_join(logger, NULL);
 
-
-    //cleanup
-    close (server_fd);
+    close(server_fd);
     munmap(gameData, SHM_SIZE);
     shm_unlink(SHM_NAME);
-    
-     //if server shutdown, all process including the child end as well (final check)
     kill(0, SIGTERM);
 
     return 0;
