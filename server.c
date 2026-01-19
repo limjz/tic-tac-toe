@@ -96,6 +96,7 @@ int main() {
             close(new_client_fd);
             printf("Client connected (ID: %d, PID: %d)\n", assigned_id + 1, pid);
         }
+    }
 
     gameData->game_active = false;
     pthread_join(scheduler, NULL);

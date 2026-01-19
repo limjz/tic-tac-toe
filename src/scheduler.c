@@ -17,6 +17,9 @@ void* scheduler_thread(void* arg) {
         pthread_mutex_lock(&gameData->board_mutex);
         
         // Round Robin Logic
+        if (gameData->turn_complete) {
+        int next_player = gameData->currentPlayer;
+        int start_player = next_player;
         int max_possible_id = 5;
 
             do {
@@ -33,7 +36,7 @@ void* scheduler_thread(void* arg) {
             char logBuf[100];
             snprintf(logBuf, sizeof(logBuf), "Scheduler: Turn passed to Player %d", next_player);
             log_message(logBuf);
-        
+        }
         pthread_mutex_unlock(&gameData->board_mutex);
         usleep(100000); 
     }
