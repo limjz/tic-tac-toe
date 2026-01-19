@@ -176,7 +176,7 @@ void handle_client (int client_socket, int player_id, int player_count)
             gameData->player_active[player_id] = false; // Mark player as inactive
             pthread_mutex_unlock(&gameData->board_mutex);
 
-            snprintf(logBuf, sizeof(logBuf), "Player %d disconnected.", player_id - 1);
+            snprintf(logBuf, sizeof(logBuf), "Player %d disconnected.", player_id + 1);
             log_message(logBuf);
             break;
         }
