@@ -69,24 +69,33 @@ int main() {
         }
         
         pthread_mutex_lock(&gameData->board_mutex);
-        if (player_count < 3) {
-            gameData->player_active[player_count] = true;
-            gameData->player_count++;
+        int assigned_id = -1;
+        for(int i = 0; i < 5; i++) {
+            if (!gameData->player_active[i]) {
+                assigned_id = i;
+                gameData->player_active[i] = true;
+                gameData->player_count++;
+                break;
+            }
         }
+
         pthread_mutex_unlock(&gameData->board_mutex);
+
+        if (assigned_id == -1) {
+            printf("Server full! Rejecting client.\n");
+            close(new_client_fd);
+            continue;
+        }
 
         pid_t pid = fork();
         if (pid == 0) {
             close(server_fd); 
-            // Child logic is now in client_handler.c
-            handle_client(new_client_fd, player_count, player_count + 1);
+            handle_client(new_client_fd, assigned_id, assigned_id + 1);
             exit(0);
         } else {
             close(new_client_fd);
-            printf("Client connected (PID: %d)\n", pid);
-            player_count++;
+            printf("Client connected (ID: %d, PID: %d)\n", assigned_id + 1, pid);
         }
-    }
 
     gameData->game_active = false;
     pthread_join(scheduler, NULL);

@@ -63,7 +63,8 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         gameData->turn_complete = true; 
         pthread_mutex_unlock(&gameData->board_mutex);
 
-        char boardStr[512];
+        char boardStr[512] = "";
+        
         char confirm[600];
         snprintf(confirm, sizeof(confirm), "Move accepted!\n%sWait for next turn...\n", boardStr);
         send(client_socket, confirm, strlen(confirm), 0);
