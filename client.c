@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 
 // client.c - Networked Tic-Tac-Toe Client (TCP)
 // Features:
@@ -325,10 +326,52 @@ int main(int argc, char **argv) {
         int rc = select(maxfd + 1, &rfds, NULL, NULL, &tv);
         if (rc < 0) {
             if (errno == EINTR) continue;
+=======
+#include "game.h"
+
+int main(int argc, char *argv[]) {
+    const char *ip = (argc >= 2) ? argv[1] : "127.0.0.1";
+
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) { perror("socket"); return 1; }
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+
+    if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
+        perror("inet_pton");
+        close(sock);
+        return 1;
+    }
+
+    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("connect");
+        close(sock);
+        return 1;
+    }
+
+    printf("Server Connected!\n");
+    printf("Type your move as: row col (example: 0 0)\n");
+
+    fd_set readfds;
+
+    while (1) {
+        FD_ZERO(&readfds);
+        FD_SET(sock, &readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+
+        int maxfd = (sock > STDIN_FILENO) ? sock : STDIN_FILENO;
+
+        int rc = select(maxfd + 1, &readfds, NULL, NULL, NULL);
+        if (rc < 0) {
+>>>>>>> Stashed changes
             perror("select");
             break;
         }
 
+<<<<<<< Updated upstream
         // 1) Incoming server line
         if (FD_ISSET(sock, &rfds)) {
             char line[LINE_MAX_LEN];
@@ -339,9 +382,22 @@ int main(int argc, char **argv) {
             }
             if (n < 0) {
                 perror("recv_line");
+=======
+        // 1) Server message
+        if (FD_ISSET(sock, &readfds)) {
+            char buf[BUFFER_SIZE];
+            int n = (int)recv(sock, buf, sizeof(buf) - 1, 0);
+            if (n <= 0) {
+                printf("Server disconnected. GAME OVER\n");
+>>>>>>> Stashed changes
                 break;
             }
+            buf[n] = '\0';
+            printf("%s", buf);
+            fflush(stdout);
+        }
 
+<<<<<<< Updated upstream
             // Handle known messages
             if (strncmp(line, "SYMBOL ", 7) == 0 && strlen(line) >= 8) {
                 my_symbol = line[7];
@@ -430,10 +486,22 @@ int main(int argc, char **argv) {
 
             // After sending, wait for server response (it decides validity/next turn)
             your_turn = false;
+=======
+        // 2) User input -> send to server
+        if (FD_ISSET(STDIN_FILENO, &readfds)) {
+            char input[BUFFER_SIZE];
+            if (!fgets(input, sizeof(input), stdin)) break;
+
+            // Send as-is; server expects "row col\n"
+            send(sock, input, strlen(input), 0);
+>>>>>>> Stashed changes
         }
     }
 
     close(sock);
+<<<<<<< Updated upstream
     scores_free(&scores);
+=======
+>>>>>>> Stashed changes
     return 0;
 }
