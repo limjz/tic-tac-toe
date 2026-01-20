@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <errno.h>
 
+<<<<<<< Updated upstream
 #define BUFFER_SIZE 1024
 #define DEFAULT_PORT 8080
 
@@ -144,6 +145,98 @@ static void handle_client(int client_socket, int player_id) {
         for (int i = 0; i < bytes; i++) {
             if (buf[i] == '\r' || buf[i] == '\n') {
                 buf[i] = '\0';
+=======
+// GLOBAL DEFINITIONS
+struct Game *gameData;
+const char* SHM_NAME = "/game_shm";
+const size_t SHM_SIZE = sizeof(struct Game);
+
+void signal_handler(int signo) {
+    (void)signo;
+    while (waitpid(-1, NULL, WNOHANG) > 0) { }
+}
+
+int main() {
+    shm_unlink(SHM_NAME);
+
+    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) { perror("shm_open failed"); exit(1); }
+    ftruncate(shm_fd, SHM_SIZE);
+
+    gameData = (struct Game*)mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (gameData == MAP_FAILED) { perror("mmap failed"); exit(1); }
+
+    // Init shared data
+    memset(gameData, 0, SHM_SIZE);
+    gameData->player_count = 0;
+    gameData->game_active = true;
+    gameData->currentPlayer = 1;
+    gameData->turn_complete = false;
+    gameData->winner = 0;
+    gameData->draw = false;
+
+    for (int i = 0; i < 5; i++) {
+        gameData->player_active[i] = false;
+        gameData->client_sockets[i] = -1;
+    }
+
+    // Init mutexes (process-shared)
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&gameData->board_mutex, &attr);
+    pthread_mutex_init(&gameData->log_mutex, &attr);
+
+    // Threads
+    pthread_t scheduler, logger;
+    pthread_create(&scheduler, NULL, scheduler_thread, NULL);
+    pthread_create(&logger, NULL, logger_thread, NULL);
+
+    // Socket setup
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) { perror("socket"); exit(1); }
+
+    struct sockaddr_in server_address;
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(SERVER_PORT);
+    server_address.sin_addr.s_addr = INADDR_ANY;
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    if (bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
+        perror("Binding failed"); exit(1);
+    }
+    if (listen(server_fd, 5) == -1) {
+        perror("listen failed"); exit(1);
+    }
+
+    signal(SIGCHLD, signal_handler);
+
+    printf("Server started. Waiting for players...\n");
+
+    while (gameData->game_active) {
+        struct sockaddr_in client_address;
+        socklen_t client_len = sizeof(client_address);
+        int new_client_fd = accept(server_fd, (struct sockaddr *)&client_address, &client_len);
+
+        if (new_client_fd == -1) {
+            if (!gameData->game_active) break;
+            if (errno == EINTR) continue;
+            continue;
+        }
+
+        pthread_mutex_lock(&gameData->board_mutex);
+
+        int assigned_id = -1;
+        for (int i = 0; i < 5; i++) {
+            if (!gameData->player_active[i]) {
+                assigned_id = i;
+                gameData->player_active[i] = true;
+                gameData->client_sockets[i] = new_client_fd; // keep for broadcast
+                gameData->player_count++;
+>>>>>>> Stashed changes
                 break;
             }
         }
@@ -323,6 +416,7 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&gameData->board_mutex);
 
         pid_t pid = fork();
+<<<<<<< Updated upstream
         if (pid < 0) {
             perror("fork failed");
             close(client_fd);
@@ -340,11 +434,45 @@ int main(int argc, char *argv[]) {
     }
 
     // cleanup (server stop)
+=======
+        if (pid == 0) {
+            close(server_fd);
+            handle_client(new_client_fd, assigned_id, assigned_id + 1);
+            exit(0);
+        } else if (pid > 0) {
+            // IMPORTANT: parent keeps the socket open for broadcast. Do NOT close(new_client_fd) here.
+            printf("Client connected (ID: %d, PID: %d)\n", assigned_id + 1, pid);
+        } else {
+            perror("fork failed");
+            close(new_client_fd);
+            pthread_mutex_lock(&gameData->board_mutex);
+            gameData->player_active[assigned_id] = false;
+            gameData->client_sockets[assigned_id] = -1;
+            gameData->player_count--;
+            pthread_mutex_unlock(&gameData->board_mutex);
+        }
+    }
+
+    // Shutdown
+>>>>>>> Stashed changes
     gameData->game_active = false;
 
     pthread_join(scheduler, NULL);
     pthread_join(logger, NULL);
 
+<<<<<<< Updated upstream
+=======
+    // Close all client sockets still stored
+    pthread_mutex_lock(&gameData->board_mutex);
+    for (int i = 0; i < 5; i++) {
+        if (gameData->client_sockets[i] >= 0) {
+            close(gameData->client_sockets[i]);
+            gameData->client_sockets[i] = -1;
+        }
+    }
+    pthread_mutex_unlock(&gameData->board_mutex);
+
+>>>>>>> Stashed changes
     close(server_fd);
     munmap(gameData, SHM_SIZE);
     shm_unlink(SHM_NAME);
