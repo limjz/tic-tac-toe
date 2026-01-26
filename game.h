@@ -54,5 +54,6 @@ void* scheduler_thread(void* arg);
 void* logger_thread(void* arg);
 void handle_client(int client_socket, int player_id, int human_player_number);
 void signal_handler(int signo);
+void build_board_string(char *out, size_t out_sz);
 
 #endif
