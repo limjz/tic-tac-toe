@@ -1,168 +1,137 @@
 #include "game.h"
 
-static void close_if_dead_socket(int idx) {
-    int s = gameData->client_sockets[idx];
-    if (s >= 0) {
-        close(s);
-        gameData->client_sockets[idx] = -1;
-    }
+static void build_big_board(char *out, size_t out_sz) {
+    // Convert board (3x3) to a big ASCII board like the reference
+    // Uses gameData->board[r][c] as '.', 'X','Y','Z'
+
+    char a = gameData->board[0][0];
+    char b = gameData->board[0][1];
+    char c = gameData->board[0][2];
+    char d = gameData->board[1][0];
+    char e = gameData->board[1][1];
+    char f = gameData->board[1][2];
+    char g = gameData->board[2][0];
+    char h = gameData->board[2][1];
+    char i = gameData->board[2][2];
+
+    snprintf(out, out_sz,
+        "=== GRID LABELS ===\n"
+        "  1 | 2 | 3\n"
+        " ---+---+---\n"
+        "  4 | 5 | 6\n"
+        " ---+---+---\n"
+        "  7 | 8 | 9\n"
+        "\n"
+        "=== GAME BOARD ===\n"
+        "    |   |   \n"
+        "  %c | %c | %c \n"
+        "____|___|____\n"
+        "    |   |   \n"
+        "  %c | %c | %c \n"
+        "____|___|____\n"
+        "    |   |   \n"
+        "  %c | %c | %c \n"
+        "    |   |   \n"
+        "\n",
+        a, b, c,
+        d, e, f,
+        g, h, i
+    );
 }
 
-static void broadcast_all(const char *msg) {
-    for (int i = 0; i < 5; i++) {
-        if (!gameData->player_active[i]) {
-            // if disconnected, ensure parent socket is closed
-            close_if_dead_socket(i);
-            continue;
-        }
-        int s = gameData->client_sockets[i];
-        if (s < 0) continue;
-
-        ssize_t n = send(s, msg, strlen(msg), 0);
-        if (n < 0) {
-            // client likely gone; mark inactive and close socket
-            gameData->player_active[i] = false;
-            close_if_dead_socket(i);
-        }
+static void broadcast_all_locked(const char *msg) {
+    for (int p = 0; p < MAX_PLAYERS; p++) {
+        if (!gameData->player_active[p]) continue;
+        int s = gameData->client_sockets[p];
+        if (s >= 0) send(s, msg, strlen(msg), 0);
     }
-}
-
-// 3-in-a-row win check on 4x4, returns winner number 1..5 else 0
-static int check_winner_3(void) {
-    // rows
-    for (int r = 0; r < 4; r++) {
-        for (int c = 0; c <= 1; c++) {
-            char a = gameData->boardGame[r][c];
-            if (a != 0 &&
-                a == gameData->boardGame[r][c+1] &&
-                a == gameData->boardGame[r][c+2]) {
-                return a - '0';
-            }
-        }
-    }
-    // cols
-    for (int c = 0; c < 4; c++) {
-        for (int r = 0; r <= 1; r++) {
-            char a = gameData->boardGame[r][c];
-            if (a != 0 &&
-                a == gameData->boardGame[r+1][c] &&
-                a == gameData->boardGame[r+2][c]) {
-                return a - '0';
-            }
-        }
-    }
-    // diag down-right
-    for (int r = 0; r <= 1; r++) {
-        for (int c = 0; c <= 1; c++) {
-            char a = gameData->boardGame[r][c];
-            if (a != 0 &&
-                a == gameData->boardGame[r+1][c+1] &&
-                a == gameData->boardGame[r+2][c+2]) {
-                return a - '0';
-            }
-        }
-    }
-    // diag down-left
-    for (int r = 0; r <= 1; r++) {
-        for (int c = 2; c < 4; c++) {
-            char a = gameData->boardGame[r][c];
-            if (a != 0 &&
-                a == gameData->boardGame[r+1][c-1] &&
-                a == gameData->boardGame[r+2][c-2]) {
-                return a - '0';
-            }
-        }
-    }
-    return 0;
-}
-
-static bool check_draw(void) {
-    for (int r = 0; r < 4; r++)
-        for (int c = 0; c < 4; c++)
-            if (gameData->boardGame[r][c] == 0)
-                return false;
-    return true;
 }
 
 void* scheduler_thread(void* arg) {
     (void)arg;
     printf("[Scheduler] Thread started. Waiting for players...\n");
 
-    while (gameData->player_count < MIN_PLAYERS && gameData->game_active) {
-        usleep(200000);
-    }
-
-    if (!gameData->game_active) return NULL;
-
-    log_message("Scheduler: Minimum players connected. Game Starting!");
-    printf("Scheduler: Minimum players connected. Game Starting!\n");
-
-    // Broadcast initial state
-    pthread_mutex_lock(&gameData->board_mutex);
-    char boardStr[512];
-    build_board_string(boardStr, sizeof(boardStr));
-    int turn = gameData->currentPlayer;
-    pthread_mutex_unlock(&gameData->board_mutex);
-
-    char startMsg[800];
-    snprintf(startMsg, sizeof(startMsg), "Game Starting! Current turn: Player %d\n%s", turn, boardStr);
-
-    pthread_mutex_lock(&gameData->board_mutex);
-    broadcast_all(startMsg);
-    pthread_mutex_unlock(&gameData->board_mutex);
-
-    while (gameData->game_active) {
+    while (1) {
         pthread_mutex_lock(&gameData->board_mutex);
 
-        // win/draw check
-        int w = check_winner_3();
-        if (w != 0) {
-            gameData->winner = w;
-            gameData->game_active = false;
-        } else if (check_draw()) {
-            gameData->draw = true;
-            gameData->game_active = false;
-        }
-
         if (!gameData->game_active) {
-            build_board_string(boardStr, sizeof(boardStr));
-
-            char endMsg[900];
-            if (gameData->winner != 0) {
-                snprintf(endMsg, sizeof(endMsg), "GAME OVER! Winner: Player %d\n%s", gameData->winner, boardStr);
-            } else {
-                snprintf(endMsg, sizeof(endMsg), "GAME OVER! Draw.\n%s", boardStr);
-            }
-            broadcast_all(endMsg);
-
             pthread_mutex_unlock(&gameData->board_mutex);
             break;
         }
 
-        // Turn pass after move
-        if (gameData->turn_complete) {
-            int next_player = gameData->currentPlayer;
-            int start_player = next_player;
+        // Start when >=3 players AND all have chosen symbols
+        bool ready = (gameData->player_count >= MIN_PLAYERS);
+        if (ready) {
+            int chosen = 0;
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                if (gameData->player_active[i] && gameData->player_symbol[i] != 0) chosen++;
+            }
+            if (chosen < MIN_PLAYERS) ready = false;
+        }
 
-            do {
-                next_player = (next_player % 5) + 1; // 1..5
-                if (next_player == start_player && !gameData->player_active[next_player - 1]) {
-                    break;
+        // First start broadcast
+        if (ready && gameData->current_turn_id < 0) {
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                if (gameData->player_active[i]) { gameData->current_turn_id = i; break; }
+            }
+
+            char screen[2048];
+            build_big_board(screen, sizeof(screen));
+
+            char msg[2600];
+            snprintf(msg, sizeof(msg),
+                     "%s>>> YOUR TURN! <<<\nInput next grid number (1-9): ",
+                     screen);
+            // Only current player should see "YOUR TURN", others see waiting
+            for (int p = 0; p < MAX_PLAYERS; p++) {
+                if (!gameData->player_active[p]) continue;
+                int s = gameData->client_sockets[p];
+                if (s < 0) continue;
+
+                if (p == gameData->current_turn_id) {
+                    send(s, msg, strlen(msg), 0);
+                } else {
+                    char waitmsg[2600];
+                    snprintf(waitmsg, sizeof(waitmsg),
+                             "%s>>> Waiting for opponent's move... <<<\n",
+                             screen);
+                    send(s, waitmsg, strlen(waitmsg), 0);
                 }
-            } while (!gameData->player_active[next_player - 1]);
+            }
+        }
 
-            gameData->currentPlayer = next_player;
+        // After a move, rotate turn and broadcast updated board
+        if (gameData->turn_complete && gameData->current_turn_id >= 0) {
+            int next = gameData->current_turn_id;
+            do {
+                next = (next + 1) % MAX_PLAYERS;
+            } while (!gameData->player_active[next]);
+
+            gameData->current_turn_id = next;
             gameData->turn_complete = false;
 
-            build_board_string(boardStr, sizeof(boardStr));
+            char screen[2048];
+            build_big_board(screen, sizeof(screen));
 
-            char msg[900];
-            snprintf(msg, sizeof(msg), "Turn passed to Player %d\n%s", next_player, boardStr);
-            broadcast_all(msg);
+            for (int p = 0; p < MAX_PLAYERS; p++) {
+                if (!gameData->player_active[p]) continue;
+                int s = gameData->client_sockets[p];
+                if (s < 0) continue;
 
-            char logBuf[100];
-            snprintf(logBuf, sizeof(logBuf), "Scheduler: Turn passed to Player %d", next_player);
-            log_message(logBuf);
+                if (p == gameData->current_turn_id) {
+                    char turnmsg[2600];
+                    snprintf(turnmsg, sizeof(turnmsg),
+                             "%s>>> YOUR TURN! <<<\nInput next grid number (1-9): ",
+                             screen);
+                    send(s, turnmsg, strlen(turnmsg), 0);
+                } else {
+                    char waitmsg[2600];
+                    snprintf(waitmsg, sizeof(waitmsg),
+                             "%s>>> Waiting for opponent's move... <<<\n",
+                             screen);
+                    send(s, waitmsg, strlen(waitmsg), 0);
+                }
+            }
         }
 
         pthread_mutex_unlock(&gameData->board_mutex);

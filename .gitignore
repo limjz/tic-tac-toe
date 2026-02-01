@@ -2,3 +2,4 @@ server
 client
 *.log
 game.log
+*.save

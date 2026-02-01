@@ -17,26 +17,41 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
+#include <ctype.h>
 
 #define BUFFER_SIZE 1024
 #define SERVER_PORT 8080
+
+#define MIN_PLAYERS 3
+#define MAX_PLAYERS 3
+
+#define BOARD_N 3
+#define EMPTY_CELL '.'
+
+// ✅ logger.c requires these
 #define MAX_LOG_LENGTH 256
 #define MAX_QUEUE_SIZE 50
-#define MIN_PLAYERS 3
 
 struct Game {
-    char boardGame[4][4];
-    int currentPlayer;            // human player number: 1..5
-    int player_count;
+    // Board (3x3)
+    char board[BOARD_N][BOARD_N];   // '.', 'X', 'Y', 'Z'
+
+    // Game state
     bool game_active;
-
-    bool player_active[5];
-    int  client_sockets[5];       // <-- needed for broadcast
     bool turn_complete;
+    int  current_turn_id;           // 0..MAX_PLAYERS-1
 
-    int winner;                   // 0 = none, else 1..5
+    // Players
+    int  player_count;
+    bool player_active[MAX_PLAYERS];
+    int  client_sockets[MAX_PLAYERS];
+    char player_symbol[MAX_PLAYERS];     // 'X','Y','Z'
+    char player_name[MAX_PLAYERS][32];
+
+    // ✅ end state flag used in your code
     bool draw;
 
+    // ✅ logger queue fields required by src/logger.c
     char log_queue[MAX_QUEUE_SIZE][MAX_LOG_LENGTH];
     int log_head;
     int log_tail;
