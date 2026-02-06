@@ -33,6 +33,13 @@
 #define MAX_QUEUE_SIZE 50
 
 struct Game {
+
+    struct { // Scoring
+        char name[32];
+        int wins;
+    } scores[MAX_PLAYERS]; 
+    int total_games_played;
+
     // Board (3x3)
     char board[BOARD_N][BOARD_N];   // '.', 'X', 'Y', 'Z'
 
@@ -70,5 +77,7 @@ void* logger_thread(void* arg);
 void handle_client(int client_socket, int player_id, int human_player_number);
 void signal_handler(int signo);
 void build_board_string(char *out, size_t out_sz);
+void load_scores();
+void save_scores();
 
 #endif

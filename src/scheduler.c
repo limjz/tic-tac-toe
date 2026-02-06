@@ -140,3 +140,16 @@ void* scheduler_thread(void* arg) {
 
     return NULL;
 }
+
+void reset_board() {
+    // Clear board
+    for (int r=0; r<BOARD_N; r++) {
+        for (int c=0; c<BOARD_N; c++) gameData->board[r][c] = EMPTY_CELL;
+    }
+    gameData->turn_complete = false;
+    gameData->draw = false;
+    // Don't set game_active = false!
+    
+    // Log it
+    log_message("Game Reset. New Round starting.");
+}

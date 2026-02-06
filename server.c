@@ -10,6 +10,9 @@ void signal_handler(int signo) {
 }
 
 static void init_game_locked(void) {
+
+    load_scores();
+
     // Init board to EMPTY_CELL
     for (int r = 0; r < BOARD_N; r++) {
         for (int c = 0; c < BOARD_N; c++) {
@@ -44,7 +47,24 @@ static void init_game_locked(void) {
     }
 }
 
+void shutdown_handler(int signo) {
+    printf("\nShutting down...\n");
+    
+    if (gameData) {
+        gameData->game_active = false; // Kill threads
+        save_scores();                 // SAVE SCORES (Requirement 7.1)
+    }
+    
+    // Clean up
+    shm_unlink(SHM_NAME);
+    exit(0);
+}
+
 int main() {
+
+    signal(SIGCHLD, signal_handler);
+    signal(SIGINT, shutdown_handler);
+
     shm_unlink(SHM_NAME);
 
     // Shared memory create

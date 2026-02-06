@@ -134,10 +134,16 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         bool draw = (!win && check_draw(gameData->board));
 
         if (win) {
-            gameData->game_active = false;
+            strcpy(gameData->scores[player_id].name, gameData->player_name[player_id]);
+            gameData->scores[player_id].wins++;
+
+            char msg[256];
+            snprintf(msg, sizeof(msg), ">>> PLAYER %d WINS! <<<\nTotal Wins: %d\nRestarting in 5 seconds...\n", 
+                human_player_number, gameData->scores[player_id].wins);
+
+                send_str(client_socket, msg);
         } else if (draw) {
-            gameData->game_active = false;
-            gameData->draw = true;
+            send_str(client_socket, ">>> DRAW! <<<\nRestarting in 5 seconds...\n");
         }
 
         gameData->turn_complete = true;
