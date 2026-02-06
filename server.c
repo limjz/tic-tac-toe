@@ -18,6 +18,9 @@ static void init_game_locked(void) {
         for (int c = 0; c < BOARD_N; c++) {
             gameData->board[r][c] = EMPTY_CELL;
         }
+
+        gameData->draw = false;
+        gameData->round_over = false;
     }
 
     // Game state

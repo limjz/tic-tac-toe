@@ -1,5 +1,18 @@
 #include "game.h"
 
+void reset_board() {
+    // Clear board
+    for (int r=0; r<BOARD_N; r++) {
+        for (int c=0; c<BOARD_N; c++) gameData->board[r][c] = EMPTY_CELL;
+    }
+    gameData->turn_complete = false;
+    gameData->draw = false;
+    
+    // Log it
+    log_message("Game Reset. New Round starting.");
+}
+
+
 static void build_big_board(char *out, size_t out_sz) {
     // Convert board (3x3) to a big ASCII board like the reference
     // Uses gameData->board[r][c] as '.', 'X','Y','Z'
@@ -57,6 +70,23 @@ void* scheduler_thread(void* arg) {
         if (!gameData->game_active) {
             pthread_mutex_unlock(&gameData->board_mutex);
             break;
+        }
+
+        if (gameData->round_over) {
+            pthread_mutex_unlock(&gameData->board_mutex);
+            
+            // Wait 5 seconds (unlocked, so clients can still see the Win msg)
+            log_message("Round Over. Resetting in 5s...");
+            sleep(5); 
+
+            pthread_mutex_lock(&gameData->board_mutex);
+            reset_board(); 
+            gameData->round_over = false;
+            gameData->current_turn_id = -1;
+            
+            // Optional: Broadcast "New Game Started" here if you want
+            pthread_mutex_unlock(&gameData->board_mutex);
+            continue; // Skip the rest of the loop to restart fresh
         }
 
         // Start when >=3 players AND all have chosen symbols
@@ -141,15 +171,3 @@ void* scheduler_thread(void* arg) {
     return NULL;
 }
 
-void reset_board() {
-    // Clear board
-    for (int r=0; r<BOARD_N; r++) {
-        for (int c=0; c<BOARD_N; c++) gameData->board[r][c] = EMPTY_CELL;
-    }
-    gameData->turn_complete = false;
-    gameData->draw = false;
-    // Don't set game_active = false!
-    
-    // Log it
-    log_message("Game Reset. New Round starting.");
-}

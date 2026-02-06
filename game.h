@@ -40,6 +40,8 @@ struct Game {
     } scores[MAX_PLAYERS]; 
     int total_games_played;
 
+    bool round_over;
+
     // Board (3x3)
     char board[BOARD_N][BOARD_N];   // '.', 'X', 'Y', 'Z'
 

@@ -142,21 +142,19 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
                 human_player_number, gameData->scores[player_id].wins);
 
                 send_str(client_socket, msg);
+
+                gameData->round_over = true;
+
         } else if (draw) {
             send_str(client_socket, ">>> DRAW! <<<\nRestarting in 5 seconds...\n");
+
+            gameData->round_over = true;
         }
 
         gameData->turn_complete = true;
 
         pthread_mutex_unlock(&gameData->board_mutex);
 
-        if (win) {
-            char msg[128];
-            snprintf(msg, sizeof(msg), ">>> PLAYER %d (%c) WINS! <<<\n", human_player_number, sym);
-            send_str(client_socket, msg);
-        } else if (draw) {
-            send_str(client_socket, ">>> DRAW! <<<\n");
-        }
     }
 
     close(client_socket);
