@@ -6,7 +6,7 @@ void build_board_string(char *out, size_t out_sz) {
     for (int r = 0; r < 4; r++) {
         used += (size_t)snprintf(out + used, out_sz - used, "%d | ", r);
         for (int c = 0; c < 4; c++) {
-            char cell = gameData->boardGame[r][c];
+            char cell = gameData->board[r][c];
             if (cell == 0) cell = '.';
             used += (size_t)snprintf(out + used, out_sz - used, "%c ", cell);
         }
