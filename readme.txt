@@ -1,9 +1,8 @@
 Compile with make file and run
 1. Navigate to the tic-tac-toe folder
 2. Open Terminal
-3. Type: make
-4. Type: chmod +x run_game.sh (Do once only)
-5. Type: ./run_game.sh 
+3. Type: chmod +x run_game.sh (Do once only)
+4. Type: ./run_game.sh 
 
 Example Commands
 make : Compile all source file and links libraries
