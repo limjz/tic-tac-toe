@@ -25,7 +25,7 @@
 #define MIN_PLAYERS 3
 #define MAX_PLAYERS 3
 
-#define BOARD_N 3
+#define BOARD_N 4 
 #define EMPTY_CELL '.'
 
 // ✅ logger.c requires these

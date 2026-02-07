@@ -2,53 +2,61 @@
 
 void reset_board() {
     // Clear board
-    for (int r=0; r<BOARD_N; r++) {
-        for (int c=0; c<BOARD_N; c++) gameData->board[r][c] = EMPTY_CELL;
+    for (int r = 0; r < BOARD_N; r++) {
+        for (int c = 0; c < BOARD_N; c++) gameData->board[r][c] = EMPTY_CELL;
     }
     gameData->turn_complete = false;
     gameData->draw = false;
-    
+
     // Log it
     log_message("Game Reset. New Round starting.");
 }
 
-
+/*
+    Build big board UI (4x4) exactly in the style you used before:
+    - GRID LABELS 1..16
+    - GAME BOARD drawn using the real board values
+*/
 static void build_big_board(char *out, size_t out_sz) {
-    // Convert board (3x3) to a big ASCII board like the reference
-    // Uses gameData->board[r][c] as '.', 'X','Y','Z'
+    // Replace empty cells with '.' for display
+    char d[BOARD_N][BOARD_N];
+    for (int r = 0; r < BOARD_N; r++) {
+        for (int c = 0; c < BOARD_N; c++) {
+            char cell = gameData->board[r][c];
+            d[r][c] = (cell == 0 || cell == EMPTY_CELL) ? '.' : cell;
+        }
+    }
 
-    char a = gameData->board[0][0];
-    char b = gameData->board[0][1];
-    char c = gameData->board[0][2];
-    char d = gameData->board[1][0];
-    char e = gameData->board[1][1];
-    char f = gameData->board[1][2];
-    char g = gameData->board[2][0];
-    char h = gameData->board[2][1];
-    char i = gameData->board[2][2];
-
+    // 4x4 grid labels + big 4x4 board
+    // This prints the board in a "bigger" style (multi-line cells).
     snprintf(out, out_sz,
         "=== GRID LABELS ===\n"
-        "  1 | 2 | 3\n"
-        " ---+---+---\n"
-        "  4 | 5 | 6\n"
-        " ---+---+---\n"
-        "  7 | 8 | 9\n"
+        "  1 |  2 |  3 |  4\n"
+        " ---+---+---+---\n"
+        "  5 |  6 |  7 |  8\n"
+        " ---+---+---+---\n"
+        "  9 | 10 | 11 | 12\n"
+        " ---+---+---+---\n"
+        " 13 | 14 | 15 | 16\n"
         "\n"
         "=== GAME BOARD ===\n"
-        "    |   |   \n"
-        "  %c | %c | %c \n"
-        "____|___|____\n"
-        "    |   |   \n"
-        "  %c | %c | %c \n"
-        "____|___|____\n"
-        "    |   |   \n"
-        "  %c | %c | %c \n"
-        "    |   |   \n"
+        "     |     |     |     \n"
+        "  %c  |  %c  |  %c  |  %c  \n"
+        "_____|_____|_____|_____\n"
+        "     |     |     |     \n"
+        "  %c  |  %c  |  %c  |  %c  \n"
+        "_____|_____|_____|_____\n"
+        "     |     |     |     \n"
+        "  %c  |  %c  |  %c  |  %c  \n"
+        "_____|_____|_____|_____\n"
+        "     |     |     |     \n"
+        "  %c  |  %c  |  %c  |  %c  \n"
+        "     |     |     |     \n"
         "\n",
-        a, b, c,
-        d, e, f,
-        g, h, i
+        d[0][0], d[0][1], d[0][2], d[0][3],
+        d[1][0], d[1][1], d[1][2], d[1][3],
+        d[2][0], d[2][1], d[2][2], d[2][3],
+        d[3][0], d[3][1], d[3][2], d[3][3]
     );
 }
 
@@ -72,24 +80,28 @@ void* scheduler_thread(void* arg) {
             break;
         }
 
+        // If round ended (someone won / draw)
         if (gameData->round_over) {
             pthread_mutex_unlock(&gameData->board_mutex);
-            
-            // Wait 5 seconds (unlocked, so clients can still see the Win msg)
+
             log_message("Round Over. Resetting in 5s...");
-            sleep(5); 
+            sleep(5);
 
             pthread_mutex_lock(&gameData->board_mutex);
-            reset_board(); 
+            reset_board();
             gameData->round_over = false;
             gameData->current_turn_id = -1;
-            
-            // Optional: Broadcast "New Game Started" here if you want
+
+            // Broadcast new empty board to everyone
+            char screen[2048];
+            build_big_board(screen, sizeof(screen));
+            broadcast_all_locked(screen);
+
             pthread_mutex_unlock(&gameData->board_mutex);
-            continue; // Skip the rest of the loop to restart fresh
+            continue;
         }
 
-        // Start when >=3 players AND all have chosen symbols
+        // Start when >= MIN_PLAYERS AND all chosen symbols
         bool ready = (gameData->player_count >= MIN_PLAYERS);
         if (ready) {
             int chosen = 0;
@@ -102,23 +114,26 @@ void* scheduler_thread(void* arg) {
         // First start broadcast
         if (ready && gameData->current_turn_id < 0) {
             for (int i = 0; i < MAX_PLAYERS; i++) {
-                if (gameData->player_active[i]) { gameData->current_turn_id = i; break; }
+                if (gameData->player_active[i]) {
+                    gameData->current_turn_id = i;
+                    break;
+                }
             }
 
             char screen[2048];
             build_big_board(screen, sizeof(screen));
 
-            char msg[2600];
-            snprintf(msg, sizeof(msg),
-                     "%s>>> YOUR TURN! <<<\nInput next grid number (1-9): ",
-                     screen);
-            // Only current player should see "YOUR TURN", others see waiting
+            // Only current player sees "YOUR TURN"
             for (int p = 0; p < MAX_PLAYERS; p++) {
                 if (!gameData->player_active[p]) continue;
                 int s = gameData->client_sockets[p];
                 if (s < 0) continue;
 
                 if (p == gameData->current_turn_id) {
+                    char msg[2600];
+                    snprintf(msg, sizeof(msg),
+                             "%s>>> YOUR TURN! <<<\nInput next grid number (1-16): ",
+                             screen);
                     send(s, msg, strlen(msg), 0);
                 } else {
                     char waitmsg[2600];
@@ -151,7 +166,7 @@ void* scheduler_thread(void* arg) {
                 if (p == gameData->current_turn_id) {
                     char turnmsg[2600];
                     snprintf(turnmsg, sizeof(turnmsg),
-                             "%s>>> YOUR TURN! <<<\nInput next grid number (1-9): ",
+                             "%s>>> YOUR TURN! <<<\nInput next grid number (1-16): ",
                              screen);
                     send(s, turnmsg, strlen(turnmsg), 0);
                 } else {
@@ -170,4 +185,3 @@ void* scheduler_thread(void* arg) {
 
     return NULL;
 }
-
