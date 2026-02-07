@@ -1,0 +1,7 @@
+server
+client
+*.log
+game.log
+*.save
+client
+server
