@@ -14,7 +14,7 @@ Rules
 -3 players are needed to start. 
 -Player enters their name upon connection.
 -Each player choose a symbol (X,Y,Z)
--A 4x4 Grid will be displayed and players can type "1-12"
+-A 4x4 Grid will be displayed and players can type "1-16"
 Win Condition
 -The first player to have 3 symbol in a row win.
 -Once game finish, the game will restart in 5 seconds.

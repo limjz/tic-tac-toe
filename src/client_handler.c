@@ -239,6 +239,12 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
 
         // Win / Draw
         if (check_win(gameData->board, my_sym)) {
+
+            strcpy(gameData->scores[player_id].name, gameData->player_name[player_id]);
+            gameData->scores[player_id].wins++;
+
+            save_scores(); // udpate the scores.txt
+
             gameData->round_over = true;
             gameData->turn_complete = true; // lets scheduler broadcast update
             pthread_mutex_unlock(&gameData->board_mutex);

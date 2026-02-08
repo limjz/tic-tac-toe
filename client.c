@@ -1,4 +1,5 @@
 #include "game.h"
+#include <sys/select.h>
 
 int main(int argc, char *argv[]) {
     const char *server_ip = "127.0.0.1";
