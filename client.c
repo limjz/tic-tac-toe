@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Server Connected!\n");
-    printf("Enter move as: row col (example: 1 2)\n\n");
+    //printf("Enter move as: row col (example: 1 2)\n\n");
 
     fd_set readfds;
 

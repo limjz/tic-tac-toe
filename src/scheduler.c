@@ -12,11 +12,7 @@ void reset_board() {
     log_message("Game Reset. New Round starting.");
 }
 
-/*
-    Build big board UI (4x4) exactly in the style you used before:
-    - GRID LABELS 1..16
-    - GAME BOARD drawn using the real board values
-*/
+
 static void build_big_board(char *out, size_t out_sz) {
     // Replace empty cells with '.' for display
     char d[BOARD_N][BOARD_N];
@@ -30,16 +26,16 @@ static void build_big_board(char *out, size_t out_sz) {
     // 4x4 grid labels + big 4x4 board
     // This prints the board in a "bigger" style (multi-line cells).
     snprintf(out, out_sz,
-        "=== GRID LABELS ===\n"
-        "  1 |  2 |  3 |  4\n"
-        " ---+---+---+---\n"
-        "  5 |  6 |  7 |  8\n"
-        " ---+---+---+---\n"
-        "  9 | 10 | 11 | 12\n"
-        " ---+---+---+---\n"
-        " 13 | 14 | 15 | 16\n"
+        "\n======= GRID LABELS =======\n\n"
+        "   1 |  2 |  3 |  4\n"
+        " ----+----+----+----\n"
+        "   5 |  6 |  7 |  8\n"
+        " ----+----+----+----\n"
+        "   9 | 10 | 11 | 12\n"
+        " ----+----+----+----\n"
+        "  13 | 14 | 15 | 16\n"
         "\n"
-        "=== GAME BOARD ===\n"
+        "======= GAME BOARD =======\n\n"
         "     |     |     |     \n"
         "  %c  |  %c  |  %c  |  %c  \n"
         "_____|_____|_____|_____\n"
@@ -60,6 +56,7 @@ static void build_big_board(char *out, size_t out_sz) {
     );
 }
 
+// server send msg to all player 
 static void broadcast_all_locked(const char *msg) {
     for (int p = 0; p < MAX_PLAYERS; p++) {
         if (!gameData->player_active[p]) continue;

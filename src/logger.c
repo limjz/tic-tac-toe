@@ -15,9 +15,10 @@ void log_message(char *msg) {
 }
 
 // The Consumer Thread
+// write the move to game.log 
 void* logger_thread(void* arg) {
     printf("[Logger] Thread started.\n");
-    FILE *fp = fopen("game.log", "w");
+    FILE *fp = fopen("game.log", "w"); 
     if (!fp) { perror("Failed to open game.log"); return NULL; }
 
     fprintf(fp, "Server Started. Logger Initialized.\n");

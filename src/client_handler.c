@@ -28,11 +28,12 @@ static int parse_grid_number(const char *msg, int *out_r, int *out_c) {
     if (idx < 1 || idx > max_cell) return 0;
 
     idx -= 1; // make 0-based
-    *out_r = idx / BOARD_N;
-    *out_c = idx % BOARD_N;
+    *out_r = idx / BOARD_N; // row 
+    *out_c = idx % BOARD_N; // column
     return 1;
 }
 
+// check symbol if taken 
 static int symbol_taken(char sym) {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (gameData->player_active[i] && gameData->player_symbol[i] == sym) return 1;
@@ -42,7 +43,7 @@ static int symbol_taken(char sym) {
 
 /* 4x4 win: any full row/col, or two diagonals */
 static int check_win(char b[BOARD_N][BOARD_N], char sym) {
-    // rows
+    // rows // horizontal  
     for (int r = 0; r < BOARD_N; r++) {
         int ok = 1;
         for (int c = 0; c < BOARD_N; c++) {
@@ -51,7 +52,7 @@ static int check_win(char b[BOARD_N][BOARD_N], char sym) {
         if (ok) return 1;
     }
 
-    // cols
+    // cols // verticle
     for (int c = 0; c < BOARD_N; c++) {
         int ok = 1;
         for (int r = 0; r < BOARD_N; r++) {
@@ -81,6 +82,7 @@ static int check_win(char b[BOARD_N][BOARD_N], char sym) {
     return 0;
 }
 
+// all tiles is filled in 
 static int check_draw(char b[BOARD_N][BOARD_N]) {
     for (int r = 0; r < BOARD_N; r++) {
         for (int c = 0; c < BOARD_N; c++) {
@@ -117,6 +119,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
     buf[n] = '\0';
     trim_newline(buf);
 
+    // player input thier name, mutex lock to prevent 2 enter at same time 
     pthread_mutex_lock(&gameData->board_mutex);
     snprintf(gameData->player_name[player_id],
              sizeof(gameData->player_name[player_id]),
@@ -128,8 +131,13 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         send_str(client_socket, "Choose your symbol (X/Y/Z): ");
 
         memset(buf, 0, sizeof(buf));
+
+        // wait for input response
         n = (int)recv(client_socket, buf, sizeof(buf) - 1, 0);
+        
+        //connections drop, inactive player @ exits
         if (n <= 0) {
+            
             pthread_mutex_lock(&gameData->board_mutex);
             gameData->player_active[player_id] = false;
             gameData->client_sockets[player_id] = -1;
@@ -140,6 +148,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         buf[n] = '\0';
         trim_newline(buf);
 
+        // upper lower case both is acceptable // will only show upper case in board
         char sym = 0;
         if (buf[0] == 'X' || buf[0] == 'x') sym = 'X';
         else if (buf[0] == 'Y' || buf[0] == 'y') sym = 'Y';
@@ -150,6 +159,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
             continue;
         }
 
+        // check if taken 
         pthread_mutex_lock(&gameData->board_mutex);
         int taken = symbol_taken(sym);
         if (!taken) {
@@ -181,6 +191,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         int bytes = (int)recv(client_socket, buf, sizeof(buf) - 1, 0);
 
         if (bytes <= 0) {
+            //terminal display
             printf("Player %d disconnected.\n", human_player_number);
 
             pthread_mutex_lock(&gameData->board_mutex);
@@ -189,6 +200,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
             gameData->player_count--;
             pthread_mutex_unlock(&gameData->board_mutex);
 
+            //write to game log
             snprintf(logBuf, sizeof(logBuf), "Player %d disconnected.", human_player_number);
             log_message(logBuf);
             break;
@@ -213,7 +225,10 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
             continue;
         }
 
+        // rows and cols init
         int r, c;
+
+        // limit the number input 0<x<17 (4x4)
         if (!parse_grid_number(buf, &r, &c)) {
             pthread_mutex_unlock(&gameData->board_mutex);
             send_str(client_socket, "Invalid input. Please enter a grid number.\n");
@@ -221,11 +236,12 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
             continue;
         }
 
-        // Validate spot
+        // Validate spot 
+        // check if taken -> not '.' anymore
         if (gameData->board[r][c] != EMPTY_CELL) {
             pthread_mutex_unlock(&gameData->board_mutex);
             send_str(client_socket, "Invalid move. Spot taken.\n");
-            // ✅ THIS is where your bug was: it must NOT say 1-9.
+            //  THIS is where your bug was: it must NOT say 1-9.
             send_prompt(client_socket, BOARD_N * BOARD_N);
             continue;
         }
@@ -237,7 +253,8 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
         snprintf(logBuf, sizeof(logBuf), "Player %d placed %c at (%d,%d)", human_player_number, my_sym, r, c);
         log_message(logBuf);
 
-        // Win / Draw
+        // each round will check win and draw after place
+        // Win 
         if (check_win(gameData->board, my_sym)) {
 
             strcpy(gameData->scores[player_id].name, gameData->player_name[player_id]);
@@ -253,6 +270,7 @@ void handle_client(int client_socket, int player_id, int human_player_number) {
             continue;
         }
 
+        // Draw
         if (check_draw(gameData->board)) {
             gameData->draw = true;
             gameData->round_over = true;

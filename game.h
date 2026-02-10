@@ -25,10 +25,10 @@
 #define MIN_PLAYERS 3
 #define MAX_PLAYERS 3
 
-#define BOARD_N 4 
-#define EMPTY_CELL '.'
+#define BOARD_N 4       //4x4
+#define EMPTY_CELL '.'  
 
-// ✅ logger.c requires these
+//  logger.c requires these
 #define MAX_LOG_LENGTH 256
 #define MAX_QUEUE_SIZE 50
 
@@ -42,7 +42,7 @@ struct Game {
 
     bool round_over;
 
-    // Board (3x3)
+    // Board (4x4)
     char board[BOARD_N][BOARD_N];   // '.', 'X', 'Y', 'Z'
 
     // Game state
@@ -57,10 +57,10 @@ struct Game {
     char player_symbol[MAX_PLAYERS];     // 'X','Y','Z'
     char player_name[MAX_PLAYERS][32];
 
-    // ✅ end state flag used in your code
+    // end state flag used in your code
     bool draw;
 
-    // ✅ logger queue fields required by src/logger.c
+    // logger queue fields required by src/logger.c
     char log_queue[MAX_QUEUE_SIZE][MAX_LOG_LENGTH];
     int log_head;
     int log_tail;

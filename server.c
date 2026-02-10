@@ -4,6 +4,7 @@ struct Game *gameData;
 const char* SHM_NAME = "/game_shm";
 const size_t SHM_SIZE = sizeof(struct Game);
 
+// kill zombie 
 void signal_handler(int signo) {
     (void)signo;
     while (waitpid(-1, NULL, WNOHANG) > 0) {}
@@ -28,10 +29,10 @@ static void init_game_locked(void) {
     gameData->turn_complete = false;
     gameData->current_turn_id = -1;
 
-    // ✅ required by your request + client_handler usage
+    // required by your request + client_handler usage
     gameData->draw = false;
 
-    // ✅ required for logger.c
+    // required for logger.c
     gameData->log_head = 0;
     gameData->log_tail = 0;
 
@@ -125,7 +126,7 @@ int main() {
 
     printf("Server started. Waiting for players...\n");
 
-    // Accept loop
+    // Accept loop // game start 
     while (1) {
         struct sockaddr_in caddr;
         socklen_t clen = sizeof(caddr);
@@ -137,7 +138,6 @@ int main() {
         }
 
         pthread_mutex_lock(&gameData->board_mutex);
-
         int id = -1;
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (!gameData->player_active[i]) {
@@ -148,7 +148,6 @@ int main() {
                 break;
             }
         }
-
         pthread_mutex_unlock(&gameData->board_mutex);
 
         if (id == -1) {
@@ -163,9 +162,11 @@ int main() {
             close(server_fd);
             handle_client(client_fd, id, id + 1);
             exit(0);
+
         } else if (pid > 0) {
             // Parent keeps socket open for broadcast
             printf("Client connected (ID: %d, PID: %d)\n", id + 1, pid);
+        
         } else {
             // fork failed
             perror("fork");
